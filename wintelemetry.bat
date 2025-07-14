@@ -1,17 +1,15 @@
 @echo off
-REM Simplified Windows Telemetry & OneDrive Toggle Script
-
 REM --- Force Admin Privileges ---
-openfiles >nul 2>&1
-if not "%errorlevel%"=="0" (
+fsutil dirty query %systemdrive% >nul 2>&1
+if errorlevel 1 (
     echo Requesting administrator privileges...
-    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+    powershell -Command "Start-Process '%~f0' -Verb RunAs" >nul 2>&1
     exit /b
 )
 
 setlocal enabledelayedexpansion
 
-REM Registry keys/values for telemetry
+REM Registry keys/values for telemetry, feedback, and diagnostics
 set keys[0]=HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection AllowTelemetry
 set keys[1]=HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection AllowDeviceNameInTelemetry
 set keys[2]=HKLM\SOFTWARE\Policies\Microsoft\SQMClient\Windows CEIPEnable
@@ -38,6 +36,26 @@ set keys[22]=HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent DisableWindow
 set keys[23]=HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent DisableWindowsSpotlightOnSettings
 set keys[24]=HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent DisableWindowsSpotlightWindowsWelcomeExperience
 set keys[25]=HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy LetAppsRunInBackground
+set keys[26]=HKLM\SOFTWARE\Policies\Microsoft\Windows\System EnableActivityFeed
+set keys[27]=HKLM\SOFTWARE\Policies\Microsoft\Windows\System PublishUserActivities
+set keys[28]=HKLM\SOFTWARE\Policies\Microsoft\Windows\System UploadUserActivities
+set keys[29]=HKLM\SOFTWARE\Policies\Microsoft\Windows\Feedback DisableFeedbackNotifications
+set keys[30]=HKLM\SOFTWARE\Policies\Microsoft\Windows\Feedback NumberOfSIUFInPeriod
+set keys[31]=HKLM\SOFTWARE\Policies\Microsoft\Windows\Feedback PeriodInNanoSeconds
+@REM set keys[32]=HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection MaxTelemetryAllowed
+@REM set keys[33]=HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Diagnostics\DiagTrack Enabled
+@REM set keys[34]=HKLM\SOFTWARE\Policies\Microsoft\Windows\Privacy DisablePrivacyExperience
+@REM set keys[35]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting Disabled
+@REM set keys[36]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting ForceQueue
+@REM set keys[37]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting DoReport
+@REM set keys[38]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting SendAllData
+@REM set keys[39]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting SendAdditionalData
+@REM set keys[40]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting SendSafeReports
+@REM set keys[41]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting SendWatsonReport
+@REM set keys[42]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting SendQueueReports
+@REM set keys[43]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting SendUserReports
+@REM set keys[44]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting SendUserReportsConsent
+@REM set keys[45]=HKLM\SOFTWARE\Policies\Microsoft\Windows\ErrorReporting SendUserReportsNoConsent
 
 set desc[0]=Data Collection
 set desc[1]=Device Name in Telemetry
@@ -65,6 +83,26 @@ set desc[22]=Spotlight Action Center
 set desc[23]=Spotlight Settings
 set desc[24]=Spotlight Welcome Experience
 set desc[25]=Background Apps
+set desc[26]=Activity Feed (System)
+set desc[27]=Publish User Activities (System)
+set desc[28]=Upload User Activities (System)
+set desc[29]=Disable Feedback Notifications
+set desc[30]=Feedback SIUF Count
+set desc[31]=Feedback Period
+@REM set desc[32]=Max Telemetry Allowed
+@REM set desc[33]=Diagnostics Tracking
+@REM set desc[34]=Disable Privacy Experience
+@REM set desc[35]=Error Reporting Disabled
+@REM set desc[36]=Error Reporting ForceQueue
+@REM set desc[37]=Error Reporting DoReport
+@REM set desc[38]=Error Reporting SendAllData
+@REM set desc[39]=Error Reporting SendAdditionalData
+@REM set desc[40]=Error Reporting SendSafeReports
+@REM set desc[41]=Error Reporting SendWatsonReport
+@REM set desc[42]=Error Reporting SendQueueReports
+@REM set desc[43]=Error Reporting SendUserReports
+@REM set desc[44]=Error Reporting SendUserReportsConsent
+@REM set desc[45]=Error Reporting SendUserReportsNoConsent
 
 :mainmenu
 cls
@@ -74,7 +112,7 @@ echo ===============================
 
 echo.
 echo Telemetry Status:
-for /L %%i in (0,1,25) do (
+for /L %%i in (0,1,45) do (
     for /f "tokens=1,2" %%a in ("!keys[%%i]!") do (
         set "k=%%a"
         set "v=%%b"
@@ -92,8 +130,13 @@ for /L %%i in (0,1,25) do (
 )
 
 echo.
-echo OneDrive Status: [Enabled]
-reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive" /v "DisableFileSyncNGSC" 2>nul | find "0x1" >nul && echo OneDrive Status: [Disabled]
+REM Robust OneDrive status check
+set "ODStatus=Enabled"
+reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive" /v "DisableFileSyncNGSC" 2>nul | find "0x1" >nul && set "ODStatus=Disabled by Policy"
+if "%ODStatus%"=="Enabled" (
+    reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v OneDrive 2>nul | find /i "OneDrive.exe" >nul || set "ODStatus=Disabled: Not set to run"
+)
+echo OneDrive Status: [%ODStatus%]
 
 echo.
 echo [1] Disable ALL telemetry
@@ -102,7 +145,7 @@ echo [3] Disable and block OneDrive
 echo [4] Enable and unblock OneDrive
 echo [5] Uninstall OneDrive
 echo [6] Disable background apps/services
-echo [7] Block Windows Spotlight
+echo    (DiagTrack dmwappushservice RetailDemo WMPNetworkSvc MapsBroker Fax RemoteRegistry)
 echo [Q] Quit
 set /p choice=Choose option: 
 if "%choice%"=="1" goto disableall
@@ -111,13 +154,14 @@ if "%choice%"=="3" goto disableonedrive
 if "%choice%"=="4" goto enableonedrive
 if "%choice%"=="5" goto uninstallonedrive
 if "%choice%"=="6" goto disablebgapps
-if "%choice%"=="7" goto blockspotlight
 if /i "%choice%"=="Q" exit
+echo Wrong option. Press any key.
+pause >nul
 goto mainmenu
 
 :disableall
 echo Disabling all telemetry...
-for /L %%i in (0,1,25) do (
+for /L %%i in (0,1,45) do (
     for /f "tokens=1,2" %%a in ("!keys[%%i]!") do reg add "%%a" /v %%b /t REG_DWORD /d 0 /f >nul
 )
 echo Done. Press any key.
@@ -126,8 +170,11 @@ goto mainmenu
 
 :enableall
 echo Enabling all telemetry...
-for /L %%i in (0,1,25) do (
-    for /f "tokens=1,2" %%a in ("!keys[%%i]!") do reg add "%%a" /v %%b /t REG_DWORD /d 1 /f >nul
+REM Only enable crucial system keys (error reporting), disable others
+for /L %%i in (0,1,45) do (
+    set enable=0
+    if %%i geq 35 if %%i leq 45 set enable=1
+    for /f "tokens=1,2" %%a in ("!keys[%%i]!") do reg add "%%a" /v %%b /t REG_DWORD /d !enable! /f >nul
 )
 echo Done. Press any key.
 pause >nul
@@ -179,6 +226,10 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v "LetAppsRunInBa
 for %%S in (DiagTrack dmwappushservice RetailDemo WMPNetworkSvc MapsBroker Fax RemoteRegistry) do (
     sc stop %%S >nul 2>&1
     sc config %%S start= disabled >nul 2>&1
+)
+echo disabled services:
+for %%S in (DiagTrack dmwappushservice RetailDemo WMPNetworkSvc MapsBroker Fax RemoteRegistry) do (
+    echo   %%S
 )
 echo Done. Press any key.
 pause >nul
